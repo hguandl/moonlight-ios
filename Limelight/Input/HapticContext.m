@@ -16,9 +16,11 @@
     CHHapticEngine* _hapticEngine API_AVAILABLE(ios(13.0), tvos(14.0));
     id<CHHapticPatternPlayer> _hapticPlayer API_AVAILABLE(ios(13.0), tvos(14.0));
     BOOL _playing;
+    unsigned short _lastAmplitude;
 }
 
 -(void)cleanup API_AVAILABLE(ios(14.0), tvos(14.0)) {
+    _playing = NO;
     if (_hapticPlayer != nil) {
         [_hapticPlayer cancelAndReturnError:nil];
         _hapticPlayer = nil;
@@ -36,6 +38,7 @@
     if (_hapticEngine == nil) {
         return;
     }
+    if (_playing && amplitude == _lastAmplitude) return;
     
     // Stop the effect entirely if the amplitude is 0
     if (amplitude == 0) {
@@ -81,6 +84,7 @@
         
         _playing = YES;
     }
+    _lastAmplitude = amplitude;
 }
 
 -(id) initWithGamepad:(GCController*)gamepad locality:(GCHapticsLocality)locality API_AVAILABLE(ios(14.0), tvos(14.0)) {
@@ -96,6 +100,10 @@
     
     _playerIndex = gamepad.playerIndex;
     _hapticEngine = [gamepad.haptics createEngineWithLocality:locality];
+    if (_hapticEngine == nil) {
+        Log(LOG_W, @"Controller %d: Haptic engine creation failed", gamepad.playerIndex);
+        return nil;
+    }
     
     NSError* error;
     [_hapticEngine startAndReturnError:&error];

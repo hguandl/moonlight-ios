@@ -46,6 +46,7 @@
 -(void) setMotionEventState:(uint16_t)controllerNumber motionType:(uint8_t)motionType reportRateHz:(uint16_t)reportRateHz;
 -(void) setControllerLed:(uint16_t)controllerNumber r:(uint8_t)r g:(uint8_t)g b:(uint8_t)b;
 -(void) setAdaptiveTriggers:(uint16_t)controllerNumber flags:(uint8_t)flags typeLeft:(uint8_t)typeLeft typeRight:(uint8_t)typeRight left:(NSData*)left right:(NSData*)right;
+-(void) controllerHaptics:(uint16_t)controllerNumber sequence:(uint32_t)sequence pcm:(const uint8_t*)pcm frames:(uint16_t)frames;
 
 +(int) getConnectedGamepadMask:(StreamConfiguration*)streamConfig;
 

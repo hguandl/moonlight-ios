@@ -9,6 +9,7 @@
 #import "ControllerSupport.h"
 #import "Controller.h"
 #import "DualSenseTriggers.h"
+#import "WaveformRumble.h"
 
 #import "OnScreenControls.h"
 
@@ -17,6 +18,7 @@
 
 @import GameController;
 @import AudioToolbox;
+@import QuartzCore;
 
 static const double MOUSE_SPEED_DIVISOR = 1.25;
 
@@ -30,6 +32,9 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
     
     NSLock *_controllerStreamLock;
     NSMutableDictionary *_controllers;
+    NSLock *_waveformLock;
+    WaveformRumble _waveforms[ML_HAPTICS_MAX_CONTROLLERS];
+    NSTimer *_waveformTimer;
     id<ControllerSupportDelegate> _delegate;
     
     float accumulatedDeltaX;
@@ -57,32 +62,82 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
 
 -(void) rumble:(unsigned short)controllerNumber lowFreqMotor:(unsigned short)lowFreqMotor highFreqMotor:(unsigned short)highFreqMotor
 {
-    Controller* controller = [_controllers objectForKey:[NSNumber numberWithInteger:controllerNumber]];
-    if (controller == nil && controllerNumber == 0 && _oscEnabled) {
-        // TODO: Rumble emulation for OSC
+    if (controllerNumber >= ML_HAPTICS_MAX_CONTROLLERS) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self->_waveformLock lock];
+        WaveformRumble *state = &self->_waveforms[controllerNumber];
+        state->rumbleLeft = lowFreqMotor;
+        state->rumbleRight = highFreqMotor;
+        BOOL active = state->active;
+        [self->_waveformLock unlock];
+        if (!active) {
+            Controller *controller = self->_controllers[@(controllerNumber)];
+            [controller.lowFreqMotor setMotorAmplitude:lowFreqMotor];
+            [controller.highFreqMotor setMotorAmplitude:highFreqMotor];
+        }
+    });
+}
+
+-(void) controllerHaptics:(uint16_t)controllerNumber sequence:(uint32_t)sequence pcm:(const uint8_t*)pcm frames:(uint16_t)frames
+{
+    // Drop contended PCM rather than stall control traffic.
+    if (controllerNumber >= ML_HAPTICS_MAX_CONTROLLERS || ![_waveformLock tryLock]) return;
+    WaveformRumble *state = &_waveforms[controllerNumber];
+    BOOL firstPacket = !state->hasSequence;
+    BOOL wasActive = state->active;
+    BOOL accepted = WaveformRumblePush(state, sequence, pcm, frames, CACurrentMediaTime());
+    BOOL start = !wasActive && state->active;
+    [_waveformLock unlock];
+    if (accepted && (firstPacket || start)) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (self->_controllers[@(controllerNumber)] == nil) return;
+            if (firstPacket) Log(LOG_I, @"Waveform PCM received for controller %u; rendering RMS rumble", controllerNumber);
+            if (start) [self startWaveformTimer];
+        });
     }
-    if (controller == nil) {
-        // No connected controller for this player
-        return;
+}
+
+-(void) startWaveformTimer
+{
+    if (_controllers == nil || _waveformTimer != nil) return;
+    __weak typeof(self) weakSelf = self;
+    _waveformTimer = [NSTimer timerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer *timer) {
+        [weakSelf updateWaveformRumble];
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:_waveformTimer forMode:NSRunLoopCommonModes];
+}
+
+-(void) updateWaveformRumble
+{
+    double now = CACurrentMediaTime();
+    BOOL active = NO;
+    for (Controller *controller in _controllers.allValues) {
+        unsigned index = controller.playerIndex;
+        if (index >= ML_HAPTICS_MAX_CONTROLLERS) continue;
+        uint16_t left, right;
+        [_waveformLock lock];
+        WaveformRumble *state = &_waveforms[index];
+        BOOL update = WaveformRumblePoll(state, now, &left, &right);
+        active |= state->active;
+        [_waveformLock unlock];
+        if (update) {
+            [controller.lowFreqMotor setMotorAmplitude:left];
+            [controller.highFreqMotor setMotorAmplitude:right];
+        }
     }
-    
-    [controller.lowFreqMotor setMotorAmplitude:lowFreqMotor];
-    [controller.highFreqMotor setMotorAmplitude:highFreqMotor];
+    if (!active) {
+        [_waveformTimer invalidate];
+        _waveformTimer = nil;
+    }
 }
 
 -(void) rumbleTriggers:(uint16_t)controllerNumber leftTrigger:(uint16_t)leftTrigger rightTrigger:(uint16_t)rightTrigger
 {
-    Controller* controller = [_controllers objectForKey:[NSNumber numberWithInteger:controllerNumber]];
-    if (controller == nil && controllerNumber == 0 && _oscEnabled) {
-        // TODO: Trigger rumble emulation for OSC
-    }
-    if (controller == nil) {
-        // No connected controller for this player
-        return;
-    }
-    
-    [controller.leftTriggerMotor setMotorAmplitude:leftTrigger];
-    [controller.rightTriggerMotor setMotorAmplitude:rightTrigger];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        Controller *controller = self->_controllers[@(controllerNumber)];
+        [controller.leftTriggerMotor setMotorAmplitude:leftTrigger];
+        [controller.rightTriggerMotor setMotorAmplitude:rightTrigger];
+    });
 }
 
 -(void) setAdaptiveTriggers:(uint16_t)controllerNumber flags:(uint8_t)flags typeLeft:(uint8_t)typeLeft typeRight:(uint8_t)typeRight left:(NSData*)left right:(NSData*)right
@@ -430,10 +485,24 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
     controller.highFreqMotor = [HapticContext createContextForHighFreqMotor:controller.gamepad];
     controller.leftTriggerMotor = [HapticContext createContextForLeftTrigger:controller.gamepad];
     controller.rightTriggerMotor = [HapticContext createContextForRightTrigger:controller.gamepad];
+    if (@available(iOS 14.5, tvOS 14.5, *)) {
+        if ([controller.gamepad.extendedGamepad isKindOfClass:[GCDualSenseGamepad class]] &&
+                controller.lowFreqMotor && controller.highFreqMotor &&
+                (unsigned)controller.playerIndex < ML_HAPTICS_MAX_CONTROLLERS) {
+            [_waveformLock lock];
+            _waveforms[controller.playerIndex] = (WaveformRumble){ .ready = true };
+            [_waveformLock unlock];
+        }
+    }
 }
 
 -(void) cleanupControllerHaptics:(Controller*) controller
 {
+    if ((unsigned)controller.playerIndex < ML_HAPTICS_MAX_CONTROLLERS) {
+        [_waveformLock lock];
+        _waveforms[controller.playerIndex] = (WaveformRumble){0};
+        [_waveformLock unlock];
+    }
     if (@available(iOS 14.5, tvOS 14.5, *)) {
         if ([controller.gamepad.extendedGamepad isKindOfClass:[GCDualSenseGamepad class]]) {
             GCDualSenseGamepad *gamepad = (GCDualSenseGamepad *)controller.gamepad.extendedGamepad;
@@ -604,6 +673,12 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
             if (@available(iOS 14.5, tvOS 14.5, *)) {
                 if ([controller.extendedGamepad isKindOfClass:[GCDualSenseGamepad class]]) {
                     type = LI_CTYPE_PS;
+                    [_waveformLock lock];
+                    if ((unsigned)limeController.playerIndex < ML_HAPTICS_MAX_CONTROLLERS &&
+                            _waveforms[limeController.playerIndex].ready) {
+                        capabilities |= LI_CCAP_HAPTICS_PCM;
+                    }
+                    [_waveformLock unlock];
                 }
             }
             
@@ -1110,6 +1185,7 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
     
     _controllerStreamLock = [[NSLock alloc] init];
     _controllers = [[NSMutableDictionary alloc] init];
+    _waveformLock = [[NSLock alloc] init];
     _controllerNumbers = 0;
     _multiController = streamConfig.multiController;
     _swapABXYButtons = streamConfig.swapABXYButtons;
@@ -1268,6 +1344,8 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
 -(void) cleanup
 {
     if (_controllers == nil) return;
+    [_waveformTimer invalidate];
+    _waveformTimer = nil;
     [[NSNotificationCenter defaultCenter] removeObserver:_controllerConnectObserver];
     [[NSNotificationCenter defaultCenter] removeObserver:_controllerDisconnectObserver];
     [[NSNotificationCenter defaultCenter] removeObserver:_mouseConnectObserver];

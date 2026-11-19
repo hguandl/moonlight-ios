@@ -568,6 +568,10 @@
     [_controllerSupport setAdaptiveTriggers:controllerNumber flags:flags typeLeft:typeLeft typeRight:typeRight left:left right:right];
 }
 
+- (void) controllerHaptics:(uint16_t)controllerNumber sequence:(uint32_t)sequence pcm:(const uint8_t*)pcm frames:(uint16_t)frames {
+    [_controllerSupport controllerHaptics:controllerNumber sequence:sequence pcm:pcm frames:frames];
+}
+
 - (void)connectionStatusUpdate:(int)status {
     Log(LOG_W, @"Connection status update: %d", status);
 

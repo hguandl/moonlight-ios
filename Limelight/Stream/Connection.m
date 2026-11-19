@@ -380,6 +380,11 @@ void ClSetAdaptiveTriggers(uint16_t controllerNumber, uint8_t flags, uint8_t typ
                              right:[NSData dataWithBytes:right length:DS_EFFECT_PAYLOAD_SIZE]];
 }
 
+void ClControllerHaptics(uint16_t controllerNumber, uint32_t sequence, const uint8_t *pcm, uint16_t frames)
+{
+    [_callbacks controllerHaptics:controllerNumber sequence:sequence pcm:pcm frames:frames];
+}
+
 -(void) terminate
 {
     // Interrupt any action blocking LiStartConnection(). This is
@@ -501,6 +506,7 @@ void ClSetAdaptiveTriggers(uint16_t controllerNumber, uint8_t flags, uint8_t typ
     _clCallbacks.setMotionEventState = ClSetMotionEventState;
     _clCallbacks.setControllerLED = ClSetControllerLED;
     _clCallbacks.setAdaptiveTriggers = ClSetAdaptiveTriggers;
+    _clCallbacks.controllerHaptics = ClControllerHaptics;
 
     return self;
 }
