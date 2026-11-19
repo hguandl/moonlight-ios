@@ -371,6 +371,15 @@ void ClSetControllerLED(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t
     [_callbacks setControllerLed:controllerNumber r:r g:g b:b];
 }
 
+void ClSetAdaptiveTriggers(uint16_t controllerNumber, uint8_t flags, uint8_t typeLeft, uint8_t typeRight,
+                          uint8_t *left, uint8_t *right)
+{
+    // common-c owns these buffers only until the callback returns.
+    [_callbacks setAdaptiveTriggers:controllerNumber flags:flags typeLeft:typeLeft typeRight:typeRight
+                              left:[NSData dataWithBytes:left length:DS_EFFECT_PAYLOAD_SIZE]
+                             right:[NSData dataWithBytes:right length:DS_EFFECT_PAYLOAD_SIZE]];
+}
+
 -(void) terminate
 {
     // Interrupt any action blocking LiStartConnection(). This is
@@ -491,6 +500,7 @@ void ClSetControllerLED(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t
     _clCallbacks.rumbleTriggers = ClRumbleTriggers;
     _clCallbacks.setMotionEventState = ClSetMotionEventState;
     _clCallbacks.setControllerLED = ClSetControllerLED;
+    _clCallbacks.setAdaptiveTriggers = ClSetAdaptiveTriggers;
 
     return self;
 }

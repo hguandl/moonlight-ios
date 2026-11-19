@@ -391,6 +391,9 @@
 
 - (void)connectionTerminated:(int)errorCode {
     Log(LOG_I, @"Connection terminated: %d", errorCode);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self->_controllerSupport cleanup];
+    });
     
     unsigned int portFlags = LiGetPortFlagsFromTerminationErrorCode(errorCode);
     unsigned int portTestResults = LiTestClientConnectivity(CONN_TEST_SERVER, 443, portFlags);
@@ -486,6 +489,9 @@
 
 - (void) stageFailed:(const char*)stageName withError:(int)errorCode portTestFlags:(int)portTestFlags {
     Log(LOG_I, @"Stage %s failed: %d", stageName, errorCode);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self->_controllerSupport cleanup];
+    });
     
     unsigned int portTestResults = LiTestClientConnectivity(CONN_TEST_SERVER, 443, portTestFlags);
 
@@ -556,6 +562,10 @@
     Log(LOG_I, @"Set controller LED on gamepad %d: l%02x%02x%02x", controllerNumber, r, g, b);
     
     [_controllerSupport setControllerLed:controllerNumber r:r g:g b:b];
+}
+
+- (void) setAdaptiveTriggers:(uint16_t)controllerNumber flags:(uint8_t)flags typeLeft:(uint8_t)typeLeft typeRight:(uint8_t)typeRight left:(NSData*)left right:(NSData*)right {
+    [_controllerSupport setAdaptiveTriggers:controllerNumber flags:flags typeLeft:typeLeft typeRight:typeRight left:left right:right];
 }
 
 - (void)connectionStatusUpdate:(int)status {

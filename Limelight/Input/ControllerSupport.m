@@ -8,6 +8,7 @@
 
 #import "ControllerSupport.h"
 #import "Controller.h"
+#import "DualSenseTriggers.h"
 
 #import "OnScreenControls.h"
 
@@ -82,6 +83,29 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
     
     [controller.leftTriggerMotor setMotorAmplitude:leftTrigger];
     [controller.rightTriggerMotor setMotorAmplitude:rightTrigger];
+}
+
+-(void) setAdaptiveTriggers:(uint16_t)controllerNumber flags:(uint8_t)flags typeLeft:(uint8_t)typeLeft typeRight:(uint8_t)typeRight left:(NSData*)left right:(NSData*)right
+{
+    if (left.length != DS_EFFECT_PAYLOAD_SIZE || right.length != DS_EFFECT_PAYLOAD_SIZE) return;
+    // Controller discovery/removal and cleanup run on the main queue too.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (@available(iOS 14.5, tvOS 14.5, *)) {
+            Controller *controller = self->_controllers[@(controllerNumber)];
+            if (![controller.gamepad.extendedGamepad isKindOfClass:[GCDualSenseGamepad class]]) return;
+            GCDualSenseGamepad *gamepad = (GCDualSenseGamepad *)controller.gamepad.extendedGamepad;
+            if (flags & DS_EFFECT_LEFT_TRIGGER) {
+                if (!ApplyDualSenseTriggerEffect(gamepad.leftTrigger, typeLeft, left.bytes)) {
+                    Log(LOG_W, @"Unsupported left trigger effect: %02x", typeLeft);
+                }
+            }
+            if (flags & DS_EFFECT_RIGHT_TRIGGER) {
+                if (!ApplyDualSenseTriggerEffect(gamepad.rightTrigger, typeRight, right.bytes)) {
+                    Log(LOG_W, @"Unsupported right trigger effect: %02x", typeRight);
+                }
+            }
+        }
+    });
 }
 
 - (void) setMotionEventState:(uint16_t)controllerNumber motionType:(uint8_t)motionType reportRateHz:(uint16_t)reportRateHz
@@ -410,6 +434,13 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
 
 -(void) cleanupControllerHaptics:(Controller*) controller
 {
+    if (@available(iOS 14.5, tvOS 14.5, *)) {
+        if ([controller.gamepad.extendedGamepad isKindOfClass:[GCDualSenseGamepad class]]) {
+            GCDualSenseGamepad *gamepad = (GCDualSenseGamepad *)controller.gamepad.extendedGamepad;
+            [gamepad.leftTrigger setModeOff];
+            [gamepad.rightTrigger setModeOff];
+        }
+    }
     [controller.lowFreqMotor cleanup];
     [controller.highFreqMotor cleanup];
     [controller.leftTriggerMotor cleanup];
@@ -1110,6 +1141,7 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
     }
     
     _controllerConnectObserver = [[NSNotificationCenter defaultCenter] addObserverForName:GCControllerDidConnectNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        if (self->_controllers == nil) return;
         Log(LOG_I, @"Controller connected!");
         
         GCController* controller = note.object;
@@ -1135,6 +1167,7 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
         }
     }];
     _controllerDisconnectObserver = [[NSNotificationCenter defaultCenter] addObserverForName:GCControllerDidDisconnectNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        if (self->_controllers == nil) return;
         Log(LOG_I, @"Controller disconnected!");
         
         GCController* controller = note.object;
@@ -1225,6 +1258,7 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
 
 -(void) connectionEstablished
 {
+    if (_controllers == nil) return;
     for (Controller* controller in [_controllers allValues]) {
         // Report the controller arrival to the host if we haven't done so yet
         [self reportControllerArrival:controller];
@@ -1233,6 +1267,7 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
 
 -(void) cleanup
 {
+    if (_controllers == nil) return;
     [[NSNotificationCenter defaultCenter] removeObserver:_controllerConnectObserver];
     [[NSNotificationCenter defaultCenter] removeObserver:_controllerDisconnectObserver];
     [[NSNotificationCenter defaultCenter] removeObserver:_mouseConnectObserver];
@@ -1254,7 +1289,7 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
         [self cleanupControllerMotion:controller];
         [self cleanupControllerBattery:controller];
     }
-    [_controllers removeAllObjects];
+    _controllers = nil;
     
     for (GCController* controller in [GCController controllers]) {
         if ([ControllerSupport isSupportedGamepad:controller]) {

@@ -170,6 +170,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A6548C19BC0A49AD8C53E901 /* DualSenseTriggers.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DualSenseTriggers.h; sourceTree = "<group>"; };
 		566E9D2B2770B23A00EF7BFE /* Moonlight v1.7.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "Moonlight v1.7.xcdatamodel"; sourceTree = "<group>"; };
 		693B3A9A218638CD00982F7B /* Settings.bundle */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.plug-in"; path = Settings.bundle; sourceTree = "<group>"; };
 		9803CCAB254F9EAF00EE185E /* ConnectionCallbacks.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ConnectionCallbacks.h; sourceTree = "<group>"; };
@@ -513,6 +514,7 @@
 				9897B6A32212610800966419 /* Controller.h */,
 				9827E7A22514366900F25707 /* HapticContext.m */,
 				9827E7A7251436EA00F25707 /* HapticContext.h */,
+				A6548C19BC0A49AD8C53E901 /* DualSenseTriggers.h */,
 				9819CC12254F107A008A7C8E /* RelativeTouchHandler.h */,
 				9819CC13254F107A008A7C8E /* RelativeTouchHandler.m */,
 				9819CC20254F180F008A7C8E /* AbsoluteTouchHandler.h */,
